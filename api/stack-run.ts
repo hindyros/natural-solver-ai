@@ -1,10 +1,19 @@
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { Readable } from "node:stream";
+import { Buffer } from "node:buffer";
+
 export const config = {
-  runtime: "edge",
+  api: { bodyParser: false },
+  maxDuration: 300,
 };
 
-export default async function handler(request: Request): Promise<Response> {
-  if (request.method !== "POST") {
-    return json({ error: "Method not allowed" }, 405);
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse,
+): Promise<void> {
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
   }
 
   const publicKey = process.env.STACK_AI_PUBLIC_KEY;
@@ -12,23 +21,23 @@ export default async function handler(request: Request): Promise<Response> {
   const flowId = process.env.STACK_AI_FLOW_ID;
 
   if (!publicKey || !orgId || !flowId) {
-    return json({ error: "Server misconfigured: missing Stack AI credentials" }, 500);
+    res.status(500).json({ error: "Server misconfigured: missing Stack AI credentials" });
+    return;
   }
 
   try {
-    const formData = await request.formData();
-    const prompt = formData.get("prompt") as string;
-    const files = formData.getAll("files") as File[];
+    const { prompt, files } = await parseMultipart(req);
 
     if (!prompt?.trim()) {
-      return json({ error: "Prompt is required" }, 400);
+      res.status(400).json({ error: "Prompt is required" });
+      return;
     }
 
     const userId = crypto.randomUUID();
 
     for (const file of files) {
       const uploadForm = new FormData();
-      uploadForm.append("file", file);
+      uploadForm.append("file", new Blob([file.buffer]), file.name);
 
       const uploadUrl = new URL("https://api.stack-ai.com/upload_to_supabase_user");
       uploadUrl.searchParams.set("org", orgId);
@@ -44,7 +53,8 @@ export default async function handler(request: Request): Promise<Response> {
 
       if (!uploadRes.ok) {
         const detail = await uploadRes.text();
-        return json({ error: `File upload failed for "${file.name}": ${detail}` }, 502);
+        res.status(502).json({ error: `File upload failed for "${file.name}": ${detail}` });
+        return;
       }
     }
 
@@ -66,23 +76,52 @@ export default async function handler(request: Request): Promise<Response> {
 
     if (!runRes.ok) {
       const detail = await runRes.text();
-      return json({ error: `Flow run failed: ${detail}` }, 502);
+      res.status(502).json({ error: `Flow run failed: ${detail}` });
+      return;
     }
 
     const result = await runRes.json();
     const output: string =
       result?.outputs?.["out-0"] ?? JSON.stringify(result, null, 2);
 
-    return json({ output });
+    res.status(200).json({ output });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Internal server error";
-    return json({ error: message }, 500);
+    res.status(500).json({ error: message });
   }
 }
 
-function json(body: Record<string, unknown>, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
+interface UploadedFile {
+  name: string;
+  buffer: Buffer;
+}
+
+async function parseMultipart(
+  req: VercelRequest,
+): Promise<{ prompt: string; files: UploadedFile[] }> {
+  const busboy = (await import("busboy")).default;
+
+  return new Promise((resolve, reject) => {
+    const files: UploadedFile[] = [];
+    let prompt = "";
+
+    const bb = busboy({ headers: req.headers as Record<string, string> });
+
+    bb.on("field", (name: string, val: string) => {
+      if (name === "prompt") prompt = val;
+    });
+
+    bb.on("file", (fieldname: string, stream: Readable, info: { filename: string }) => {
+      const chunks: Buffer[] = [];
+      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      stream.on("end", () => {
+        files.push({ name: info.filename, buffer: Buffer.concat(chunks) });
+      });
+    });
+
+    bb.on("close", () => resolve({ prompt, files }));
+    bb.on("error", reject);
+
+    req.pipe(bb);
   });
 }
