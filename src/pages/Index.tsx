@@ -25,6 +25,8 @@ const Index = () => {
     setLoading(true);
     setReport(null);
 
+    const apiUrl = import.meta.env.VITE_API_URL || "";
+
     try {
       const body = new FormData();
       body.append("prompt", description);
@@ -32,19 +34,33 @@ const Index = () => {
         body.append("files", file);
       }
 
-      const apiUrl = import.meta.env.VITE_API_URL || "";
-      const res = await fetch(`${apiUrl}/api/stack-run`, {
+      const submitRes = await fetch(`${apiUrl}/api/stack-run`, {
         method: "POST",
         body,
       });
+      const submitData = await submitRes.json();
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Request failed");
+      if (!submitRes.ok) {
+        throw new Error(submitData.error || "Request failed");
       }
 
-      setReport(data.output);
+      const { jobId } = submitData;
+
+      while (true) {
+        await new Promise((r) => setTimeout(r, 3000));
+
+        const pollRes = await fetch(`${apiUrl}/api/status/${jobId}`);
+        const job = await pollRes.json();
+
+        if (job.status === "done") {
+          setReport(job.output);
+          return;
+        }
+
+        if (job.status === "error") {
+          throw new Error(job.error || "Processing failed");
+        }
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unexpected error.";

@@ -7,6 +7,8 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 app.use(cors());
 
+const jobs = new Map();
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
@@ -27,7 +29,34 @@ app.post("/api/stack-run", upload.array("files"), async (req, res) => {
     return res.status(400).json({ error: "Prompt is required" });
   }
 
-  const files = req.files ?? [];
+  const files = (req.files ?? []).map((f) => ({
+    buffer: Buffer.from(f.buffer),
+    originalname: f.originalname,
+  }));
+
+  const jobId = crypto.randomUUID();
+  jobs.set(jobId, { status: "running" });
+
+  res.json({ jobId });
+
+  runJob({ jobId, prompt, files, publicKey, orgId, flowId });
+});
+
+app.get("/api/status/:jobId", (req, res) => {
+  const job = jobs.get(req.params.jobId);
+
+  if (!job) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+
+  res.json(job);
+
+  if (job.status !== "running") {
+    setTimeout(() => jobs.delete(req.params.jobId), 60_000);
+  }
+});
+
+async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
   const userId = crypto.randomUUID();
 
   try {
@@ -51,9 +80,11 @@ app.post("/api/stack-run", upload.array("files"), async (req, res) => {
 
       if (!uploadRes.ok) {
         const detail = await uploadRes.text();
-        return res.status(502).json({
+        jobs.set(jobId, {
+          status: "error",
           error: `File upload failed for "${file.originalname}": ${detail}`,
         });
+        return;
       }
     }
 
@@ -75,20 +106,21 @@ app.post("/api/stack-run", upload.array("files"), async (req, res) => {
 
     if (!runRes.ok) {
       const detail = await runRes.text();
-      return res.status(502).json({ error: `Flow run failed: ${detail}` });
+      jobs.set(jobId, { status: "error", error: `Flow run failed: ${detail}` });
+      return;
     }
 
     const result = await runRes.json();
     const output =
       result?.outputs?.["out-0"] ?? JSON.stringify(result, null, 2);
 
-    return res.json({ output });
+    jobs.set(jobId, { status: "done", output });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Internal server error";
-    return res.status(500).json({ error: message });
+    jobs.set(jobId, { status: "error", error: message });
   }
-});
+}
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
