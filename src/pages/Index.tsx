@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Upload, X, Send, FileText, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
@@ -199,8 +200,26 @@ const Index = () => {
               </span>
               <span className="flex h-2 w-2 rounded-full bg-primary" />
             </div>
-            <div className="prose prose-invert prose-sm max-w-none p-6 prose-headings:font-sans prose-headings:tracking-tight prose-h1:text-2xl prose-h2:text-lg prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-td:text-muted-foreground prose-th:text-foreground">
-              <ReactMarkdown>{report}</ReactMarkdown>
+            <div className="prose prose-invert prose-sm max-w-none p-6 prose-headings:font-sans prose-headings:tracking-tight prose-h1:mb-4 prose-h1:text-2xl prose-h2:mt-8 prose-h2:border-b prose-h2:border-border prose-h2:pb-2 prose-h2:text-lg prose-h3:mt-6 prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-li:text-muted-foreground prose-td:text-muted-foreground prose-th:text-foreground">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  table: ({ ...props }) => (
+                    <div className="my-4 overflow-x-auto rounded border border-border">
+                      <table className="min-w-full" {...props} />
+                    </div>
+                  ),
+                  th: ({ ...props }) => (
+                    <th
+                      className="bg-muted px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide"
+                      {...props}
+                    />
+                  ),
+                  td: ({ ...props }) => <td className="px-3 py-2 align-top" {...props} />,
+                }}
+              >
+                {report}
+              </ReactMarkdown>
             </div>
           </div>
         )}

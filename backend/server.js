@@ -65,6 +65,7 @@ app.get("/api/status/:jobId", (req, res) => {
 
 async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
   const userId = crypto.randomUUID();
+  const consultantPrompt = buildConsultantPrompt(prompt);
 
   try {
     for (const file of files) {
@@ -104,7 +105,7 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          "in-0": prompt,
+          "in-0": consultantPrompt,
           "doc-0": [],
           user_id: userId,
         }),
@@ -133,3 +134,28 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Backend listening on port ${PORT}`);
 });
+
+function buildConsultantPrompt(userPrompt) {
+  return [
+    "You are a senior optimization consultant.",
+    "Return ONLY valid GitHub-flavored Markdown.",
+    "Write a polished consulting report with clear section headers and concise prose.",
+    "Use this exact top-level structure:",
+    "# Executive Summary",
+    "# Problem Definition",
+    "# Optimization Formulation",
+    "# Solution Approach",
+    "# Results & Business Impact",
+    "# Implementation Roadmap",
+    "# Risks & Assumptions",
+    "# Next Steps",
+    "Formatting requirements:",
+    "- Use Markdown tables for key metrics, assumptions, constraints, and roadmap.",
+    "- Use bullet points for recommendations and risks.",
+    "- Avoid raw JSON unless explicitly requested.",
+    "- Keep formulas readable with plain-text math if needed.",
+    "",
+    "Client problem:",
+    userPrompt,
+  ].join("\n");
+}
