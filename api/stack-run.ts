@@ -4,7 +4,7 @@ import { Buffer } from "node:buffer";
 
 export const config = {
   api: { bodyParser: false },
-  maxDuration: 300,
+  maxDuration: 600,
 };
 
 export default async function handler(
