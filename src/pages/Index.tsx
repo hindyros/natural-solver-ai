@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import { Upload, X, Send, FileText, Loader2 } from "lucide-react";
+import { toast } from "@/hooks/use-toast";
 
 const Index = () => {
   const [description, setDescription] = useState("");
@@ -24,13 +25,32 @@ const Index = () => {
     setLoading(true);
     setReport(null);
 
-    // TODO: Replace with actual Stack AI workflow call
-    // For now, simulate a response
-    await new Promise((r) => setTimeout(r, 2000));
-    setReport(
-      `# Optimization Report\n\n## Problem Summary\n\n${description}\n\n## Recommended Approach\n\nBased on the problem description provided, we recommend a **mixed-integer linear programming (MILP)** formulation.\n\n### Decision Variables\n\n- \\( x_{ij} \\in \\{0, 1\\} \\) — binary assignment variables\n- \\( y_k \\geq 0 \\) — continuous resource allocation\n\n### Objective Function\n\nMinimize total operational cost subject to capacity and demand constraints.\n\n### Key Constraints\n\n1. **Demand satisfaction** — all customer requirements must be met\n2. **Capacity limits** — no resource exceeds its maximum capacity\n3. **Budget ceiling** — total cost must remain within budget\n\n## Implementation Roadmap\n\n| Phase | Duration | Deliverable |\n|-------|----------|-------------|\n| Formulation | 1 week | Mathematical model |\n| Prototyping | 2 weeks | Solver prototype |\n| Validation | 1 week | Benchmark results |\n| Deployment | 2 weeks | Production API |\n\n## Next Steps\n\nWe recommend scheduling a deep-dive session to refine constraints and validate data inputs.`
-    );
-    setLoading(false);
+    try {
+      const body = new FormData();
+      body.append("prompt", description);
+      for (const file of files) {
+        body.append("files", file);
+      }
+
+      const res = await fetch("/api/stack-run", {
+        method: "POST",
+        body,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Request failed");
+      }
+
+      setReport(data.output);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unexpected error.";
+      toast({ title: "Request failed", description: message });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
