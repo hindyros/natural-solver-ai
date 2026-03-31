@@ -32,7 +32,8 @@ const Index = () => {
         body.append("files", file);
       }
 
-      const res = await fetch("/api/stack-run", {
+      const apiUrl = import.meta.env.VITE_API_URL || "";
+      const res = await fetch(`${apiUrl}/api/stack-run`, {
         method: "POST",
         body,
       });
