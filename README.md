@@ -5,39 +5,29 @@ Vite + React frontend with a standalone Express backend that proxies Stack AI.
 ## Architecture
 
 ```
-Browser  ──POST /api/stack-run──▸  Express backend (Railway)  ──▸  Stack AI
+Browser  ──POST /api/stack-run──▸  Express backend (Render)  ──▸  Stack AI
                                         │
                                         ├─ upload files (upload_to_supabase_user)
                                         └─ run flow   (inference/v0/run)
 ```
 
-API keys live **only on the backend** (Railway env vars). The frontend never sees them.
+API keys live **only on the backend**. The frontend never sees them.
 
-## Repo Structure
+## Deploy the Backend on Render
 
-```
-├── src/              # Vite + React frontend (deployed on Vercel)
-├── backend/          # Express backend (deployed on Railway)
-│   ├── server.js
-│   ├── package.json
-│   └── .env.example
-├── vercel.json       # SPA routing for Vercel
-└── .env.example      # Frontend env (VITE_API_URL)
-```
+1. Go to [render.com/new](https://render.com/new) → **Blueprint** → connect this repo
+2. Render auto-reads `render.yaml` and creates the service
+3. Fill in the three env vars when prompted:
+   - `STACK_AI_PUBLIC_KEY`
+   - `STACK_AI_ORG_ID`
+   - `STACK_AI_FLOW_ID`
+4. Deploy — copy the URL (e.g. `https://natural-solver-backend.onrender.com`)
 
-## Backend Environment Variables (set in Railway dashboard)
+## Deploy the Frontend on Vercel
 
-| Variable | Description |
-|---|---|
-| `STACK_AI_PUBLIC_KEY` | Stack AI bearer token |
-| `STACK_AI_ORG_ID` | Your Stack AI organisation ID |
-| `STACK_AI_FLOW_ID` | The flow to execute |
-
-## Frontend Environment Variables (set in Vercel dashboard)
-
-| Variable | Description |
-|---|---|
-| `VITE_API_URL` | URL of the deployed backend (e.g. `https://xxx.up.railway.app`) |
+1. Go to [vercel.com/new](https://vercel.com/new) → import this repo
+2. Add env var: `VITE_API_URL` = your Render backend URL (no trailing slash)
+3. Deploy
 
 ## Local Development
 
@@ -46,22 +36,9 @@ API keys live **only on the backend** (Railway env vars). The frontend never see
 cd backend
 npm install
 cp .env.example .env   # fill in your Stack AI keys
-npm start
+node --env-file=.env server.js
 
 # Frontend (terminal 2)
 npm install
 VITE_API_URL=http://localhost:3001 npm run dev
 ```
-
-## Deploy
-
-### Backend → Railway
-1. Go to [railway.app/new](https://railway.app/new) → Deploy from GitHub
-2. Set **Root Directory** to `backend`
-3. Add the three Stack AI env vars
-4. Deploy — note the public URL
-
-### Frontend → Vercel
-1. Go to [vercel.com/new](https://vercel.com/new) → Import this repo
-2. Add env var: `VITE_API_URL` = your Railway backend URL
-3. Deploy

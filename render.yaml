@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: natural-solver-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: STACK_AI_PUBLIC_KEY
+        sync: false
+      - key: STACK_AI_ORG_ID
+        sync: false
+      - key: STACK_AI_FLOW_ID
+        sync: false
