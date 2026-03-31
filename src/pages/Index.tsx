@@ -37,6 +37,7 @@ const Index = () => {
       const submitRes = await fetch(`${apiUrl}/api/stack-run`, {
         method: "POST",
         body,
+        cache: "no-store",
       });
       const submitData = await submitRes.json();
 
@@ -49,7 +50,15 @@ const Index = () => {
       while (true) {
         await new Promise((r) => setTimeout(r, 3000));
 
-        const pollRes = await fetch(`${apiUrl}/api/status/${jobId}`);
+        const pollRes = await fetch(`${apiUrl}/api/status/${jobId}`, {
+          cache: "no-store",
+        });
+        if (pollRes.status === 304) {
+          continue;
+        }
+        if (!pollRes.ok) {
+          throw new Error("Status polling failed");
+        }
         const job = await pollRes.json();
 
         if (job.status === "done") {
