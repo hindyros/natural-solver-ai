@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Upload, X, Send, FileText, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import MathAnimation from "@/components/MathAnimation";
 
 const Index = () => {
   const [description, setDescription] = useState("");
@@ -190,6 +191,9 @@ const Index = () => {
           )}
           {loading ? "Generating Report..." : "Generate Report"}
         </button>
+
+        {/* Math Animation */}
+        {loading && <MathAnimation />}
 
         {/* Report Output */}
         {report && (
