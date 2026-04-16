@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import multer from "multer";
+import { Redis } from "@upstash/redis";
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -14,7 +15,42 @@ app.use("/api", (_req, res, next) => {
   next();
 });
 
-const jobs = new Map();
+// ---------------------------------------------------------------------------
+// Job store — Redis (persistent across restarts, survives Render cold starts)
+// Falls back to in-memory Map if Redis env vars are not set (local dev).
+// ---------------------------------------------------------------------------
+const JOB_TTL_SECONDS = 3600; // jobs expire after 1 hour
+const STUCK_JOB_TIMEOUT_MS = 330_000; // mark as error if running > 5.5 min
+
+let redis = null;
+if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+  redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN,
+  });
+  console.log("Using Redis for job storage.");
+} else {
+  console.warn("Redis env vars not set — falling back to in-memory job store (not suitable for production).");
+}
+
+const memoryJobs = new Map(); // fallback only
+
+async function getJob(jobId) {
+  if (redis) return redis.get(`job:${jobId}`);
+  return memoryJobs.get(jobId) ?? null;
+}
+
+async function setJob(jobId, data) {
+  if (redis) return redis.set(`job:${jobId}`, data, { ex: JOB_TTL_SECONDS });
+  memoryJobs.set(jobId, data);
+}
+
+async function deleteJob(jobId) {
+  if (redis) return redis.del(`job:${jobId}`);
+  memoryJobs.delete(jobId);
+}
+
+// ---------------------------------------------------------------------------
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -42,27 +78,38 @@ app.post("/api/stack-run", upload.array("files"), async (req, res) => {
   }));
 
   const jobId = crypto.randomUUID();
-  jobs.set(jobId, { status: "running" });
+  await setJob(jobId, { status: "running", startedAt: Date.now() });
 
   res.json({ jobId });
 
   runJob({ jobId, prompt, files, publicKey, orgId, flowId });
 });
 
-app.get("/api/status/:jobId", (req, res) => {
-  const job = jobs.get(req.params.jobId);
+app.get("/api/status/:jobId", async (req, res) => {
+  const job = await getJob(req.params.jobId);
 
   if (!job) {
     return res.status(404).json({ error: "Job not found" });
   }
 
+  // Detect stuck jobs: if still "running" after STUCK_JOB_TIMEOUT_MS, mark as error
+  if (job.status === "running" && Date.now() - job.startedAt > STUCK_JOB_TIMEOUT_MS) {
+    const updated = { ...job, status: "error", error: "Job timed out — please try again." };
+    await setJob(req.params.jobId, updated);
+    return res.json(updated);
+  }
+
   res.json(job);
 
   if (job.status !== "running") {
-    setTimeout(() => jobs.delete(req.params.jobId), 60_000);
+    // Clean up after 60s so completed jobs don't linger
+    setTimeout(() => deleteJob(req.params.jobId), 60_000);
   }
 });
 
+// ---------------------------------------------------------------------------
+// Timeouts
+// ---------------------------------------------------------------------------
 const UPLOAD_TIMEOUT_MS = 60_000;   // 60s per file upload
 const RUN_TIMEOUT_MS   = 270_000;   // 4.5 min for the StackAI flow
 
@@ -75,6 +122,8 @@ async function fetchWithTimeout(url, options, timeoutMs) {
     clearTimeout(timer);
   }
 }
+
+// ---------------------------------------------------------------------------
 
 async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
   const userId = crypto.randomUUID();
@@ -101,7 +150,7 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
 
       if (!uploadRes.ok) {
         const detail = await uploadRes.text();
-        jobs.set(jobId, {
+        await setJob(jobId, {
           status: "error",
           error: `File upload failed for "${file.originalname}": ${detail}`,
         });
@@ -128,7 +177,7 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
 
     if (!runRes.ok) {
       const detail = await runRes.text();
-      jobs.set(jobId, { status: "error", error: `Flow run failed: ${detail}` });
+      await setJob(jobId, { status: "error", error: `Flow run failed: ${detail}` });
       return;
     }
 
@@ -136,12 +185,12 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
     const output =
       result?.outputs?.["out-0"] ?? JSON.stringify(result, null, 2);
 
-    jobs.set(jobId, { status: "done", output });
+    await setJob(jobId, { status: "done", output });
   } catch (err) {
     const message = err?.name === "AbortError"
       ? "Request timed out — StackAI took too long to respond. Please try again."
       : err instanceof Error ? err.message : "Internal server error";
-    jobs.set(jobId, { status: "error", error: message });
+    await setJob(jobId, { status: "error", error: message });
   }
 }
 
