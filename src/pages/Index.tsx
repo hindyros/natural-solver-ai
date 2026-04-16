@@ -86,11 +86,8 @@ const Index = () => {
       {/* Header */}
       <header className="border-b border-border px-6 py-4">
         <div className="mx-auto flex max-w-5xl items-center justify-between">
-          <span className="text-lg font-semibold tracking-tight text-foreground">
+          <span className="text-3xl font-bold tracking-tight text-foreground">
             Op-Σra
-          </span>
-          <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-            AI Optimization Consulting
           </span>
         </div>
       </header>
