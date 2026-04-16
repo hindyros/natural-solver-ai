@@ -63,6 +63,19 @@ app.get("/api/status/:jobId", (req, res) => {
   }
 });
 
+const UPLOAD_TIMEOUT_MS = 60_000;   // 60s per file upload
+const RUN_TIMEOUT_MS   = 270_000;   // 4.5 min for the StackAI flow
+
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
   const userId = crypto.randomUUID();
   const consultantPrompt = buildConsultantPrompt(prompt);
@@ -80,11 +93,11 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
       uploadUrl.searchParams.set("flow_id", flowId);
       uploadUrl.searchParams.set("node_id", "doc-0");
 
-      const uploadRes = await fetch(uploadUrl.toString(), {
-        method: "POST",
-        headers: { Authorization: `Bearer ${publicKey}` },
-        body: form,
-      });
+      const uploadRes = await fetchWithTimeout(
+        uploadUrl.toString(),
+        { method: "POST", headers: { Authorization: `Bearer ${publicKey}` }, body: form },
+        UPLOAD_TIMEOUT_MS,
+      );
 
       if (!uploadRes.ok) {
         const detail = await uploadRes.text();
@@ -96,7 +109,7 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
       }
     }
 
-    const runRes = await fetch(
+    const runRes = await fetchWithTimeout(
       `https://api.stack-ai.com/inference/v0/run/${orgId}/${flowId}`,
       {
         method: "POST",
@@ -110,6 +123,7 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
           user_id: userId,
         }),
       },
+      RUN_TIMEOUT_MS,
     );
 
     if (!runRes.ok) {
@@ -124,8 +138,9 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
 
     jobs.set(jobId, { status: "done", output });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Internal server error";
+    const message = err?.name === "AbortError"
+      ? "Request timed out — StackAI took too long to respond. Please try again."
+      : err instanceof Error ? err.message : "Internal server error";
     jobs.set(jobId, { status: "error", error: message });
   }
 }
