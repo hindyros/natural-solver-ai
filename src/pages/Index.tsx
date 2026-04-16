@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Upload, X, Send, FileText, Loader2 } from "lucide-react";
@@ -11,6 +11,13 @@ const Index = () => {
   const [report, setReport] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (report && reportRef.current) {
+      reportRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [report]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -194,7 +201,7 @@ const Index = () => {
 
         {/* Report Output */}
         {report && (
-          <div className="rounded border border-border bg-card">
+          <div ref={reportRef} className="rounded border border-border bg-card">
             <div className="flex items-center justify-between border-b border-border px-4 py-2">
               <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
                 Output — Consultant Report
