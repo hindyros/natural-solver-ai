@@ -100,11 +100,6 @@ app.get("/api/status/:jobId", async (req, res) => {
   }
 
   res.json(job);
-
-  if (job.status !== "running") {
-    // Clean up after 60s so completed jobs don't linger
-    setTimeout(() => deleteJob(req.params.jobId), 60_000);
-  }
 });
 
 // ---------------------------------------------------------------------------
