@@ -213,6 +213,7 @@ function buildConsultantPrompt(userPrompt) {
     "- Use bullet points for recommendations and risks.",
     "- Avoid raw JSON unless explicitly requested.",
     "- Keep formulas readable with plain-text math if needed.",
+    "- Do NOT use any emojis or emoticons anywhere in the report.",
     "",
     "Client problem:",
     userPrompt,
