@@ -4,6 +4,8 @@ import remarkGfm from "remark-gfm";
 import { Upload, X, Send, FileText, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import MathAnimation from "@/components/MathAnimation";
+import { lazy, Suspense } from "react";
+const MermaidChart = lazy(() => import("@/components/MermaidChart"));
 
 const Index = () => {
   const [description, setDescription] = useState("");
@@ -199,39 +201,101 @@ const Index = () => {
         {/* Math Animation */}
         {loading && <MathAnimation />}
 
-        {/* Report Output */}
-        {report && (
-          <div ref={reportRef} className="rounded border border-border bg-card">
-            <div className="flex items-center justify-between border-b border-border px-4 py-2">
-              <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                Output — Consultant Report
-              </span>
-              <span className="flex h-2 w-2 rounded-full bg-primary" />
-            </div>
-            <div className="prose prose-invert prose-sm max-w-none p-6 prose-headings:font-sans prose-headings:tracking-tight prose-h1:mb-4 prose-h1:text-2xl prose-h2:mt-8 prose-h2:border-b prose-h2:border-border prose-h2:pb-2 prose-h2:text-lg prose-h3:mt-6 prose-h3:text-base prose-p:text-muted-foreground prose-strong:text-foreground prose-li:text-muted-foreground prose-td:text-muted-foreground prose-th:text-foreground">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  table: ({ ...props }) => (
-                    <div className="my-4 overflow-x-auto rounded border border-border">
-                      <table className="min-w-full" {...props} />
-                    </div>
-                  ),
-                  th: ({ ...props }) => (
-                    <th
-                      className="bg-muted px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide"
-                      {...props}
-                    />
-                  ),
-                  td: ({ ...props }) => <td className="px-3 py-2 align-top" {...props} />,
-                }}
-              >
-                {report}
-              </ReactMarkdown>
-            </div>
-          </div>
-        )}
       </main>
+
+      {/* Report Output — full width for readability */}
+      {report && (
+        <div ref={reportRef} className="border-t border-border">
+          <div className="flex items-center justify-between border-b border-border px-8 py-3">
+            <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              Output — Consultant Report
+            </span>
+            <span className="flex h-2 w-2 rounded-full bg-primary" />
+          </div>
+          <div className="mx-auto max-w-5xl px-8 py-10">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                // Headings
+                h1: ({ ...props }) => (
+                  <h1 className="mb-6 mt-2 font-sans text-3xl font-bold tracking-tight text-foreground" {...props} />
+                ),
+                h2: ({ ...props }) => (
+                  <h2 className="mb-4 mt-10 border-b border-border pb-2 font-sans text-xl font-semibold tracking-tight text-foreground" {...props} />
+                ),
+                h3: ({ ...props }) => (
+                  <h3 className="mb-3 mt-7 font-sans text-base font-semibold text-foreground" {...props} />
+                ),
+                // Paragraphs & lists
+                p: ({ ...props }) => (
+                  <p className="mb-4 leading-7 text-muted-foreground" {...props} />
+                ),
+                ul: ({ ...props }) => (
+                  <ul className="mb-4 ml-6 list-disc space-y-1 text-muted-foreground" {...props} />
+                ),
+                ol: ({ ...props }) => (
+                  <ol className="mb-4 ml-6 list-decimal space-y-1 text-muted-foreground" {...props} />
+                ),
+                li: ({ ...props }) => (
+                  <li className="leading-7" {...props} />
+                ),
+                strong: ({ ...props }) => (
+                  <strong className="font-semibold text-foreground" {...props} />
+                ),
+                // Tables
+                table: ({ ...props }) => (
+                  <div className="my-6 overflow-x-auto rounded border border-border">
+                    <table className="min-w-full text-sm" {...props} />
+                  </div>
+                ),
+                thead: ({ ...props }) => (
+                  <thead className="bg-muted/60" {...props} />
+                ),
+                th: ({ ...props }) => (
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-foreground" {...props} />
+                ),
+                td: ({ ...props }) => (
+                  <td className="border-t border-border px-4 py-3 align-top text-muted-foreground" {...props} />
+                ),
+                tr: ({ ...props }) => (
+                  <tr className="transition-colors hover:bg-muted/20" {...props} />
+                ),
+                // Code blocks — mermaid diagrams or plain code
+                code: ({ className, children, ...props }) => {
+                  const language = /language-(\w+)/.exec(className || "")?.[1];
+                  const code = String(children).trim();
+                  if (language === "mermaid") {
+                    return (
+                      <Suspense fallback={<div className="h-32 animate-pulse rounded border border-border bg-muted" />}>
+                        <MermaidChart code={code} />
+                      </Suspense>
+                    );
+                  }
+                  return (
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-primary" {...props}>
+                      {children}
+                    </code>
+                  );
+                },
+                pre: ({ children, ...props }) => (
+                  <pre className="my-4 overflow-x-auto rounded border border-border bg-muted p-4 font-mono text-xs text-muted-foreground" {...props}>
+                    {children}
+                  </pre>
+                ),
+                // Horizontal rule
+                hr: () => <hr className="my-8 border-border" />,
+                // Blockquote
+                blockquote: ({ ...props }) => (
+                  <blockquote className="my-4 border-l-2 border-primary pl-4 italic text-muted-foreground" {...props} />
+                ),
+              }}
+            >
+              {report}
+            </ReactMarkdown>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
