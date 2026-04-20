@@ -20,7 +20,7 @@ app.use("/api", (_req, res, next) => {
 // Falls back to in-memory Map if Redis env vars are not set (local dev).
 // ---------------------------------------------------------------------------
 const JOB_TTL_SECONDS = 3600; // jobs expire after 1 hour
-const STUCK_JOB_TIMEOUT_MS = 660_000; // mark as error if running > 11 min
+const STUCK_JOB_TIMEOUT_MS = 960_000; // mark as error if running > 16 min
 
 let redis = null;
 if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
@@ -106,7 +106,7 @@ app.get("/api/status/:jobId", async (req, res) => {
 // Timeouts
 // ---------------------------------------------------------------------------
 const UPLOAD_TIMEOUT_MS = 60_000;   // 60s per file upload
-const RUN_TIMEOUT_MS   = 600_000;   // 10 min for the StackAI flow
+const RUN_TIMEOUT_MS   = 900_000;   // 15 min for the StackAI flow
 
 async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
