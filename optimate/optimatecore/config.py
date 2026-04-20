@@ -2,9 +2,11 @@ import logging
 import logging.config
 import os
 
-from dotenv import load_dotenv
-
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # On Render, env vars are injected by the platform
 
 # ── LLM Provider ─────────────────────────────────────────────────────────────
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic")

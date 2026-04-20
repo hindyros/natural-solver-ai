@@ -227,8 +227,8 @@ async function runOptimateJob({ jobId, prompt, files, optimateDir, optimatePytho
       "--provider", optimateLlmProvider,
     ];
 
-    // py_packages lives one level above optimate/ (both under project src root)
-    const pyPackagesPath = join(optimateDir, "..", "py_packages");
+    // py_packages is installed inside backend/ (rootDir) so it persists on Render
+    const pyPackagesPath = join(process.cwd(), "py_packages");
     const subEnv = { ...process.env };
     subEnv.PYTHONPATH = [pyPackagesPath, optimatePythonPath, process.env.PYTHONPATH]
       .filter(Boolean).join(":");
