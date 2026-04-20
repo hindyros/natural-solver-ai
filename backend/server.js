@@ -200,6 +200,7 @@ async function runStackAIJob({ jobId, prompt, files, publicKey, orgId, flowId })
 // ---------------------------------------------------------------------------
 async function runOptimateJob({ jobId, prompt, files, optimateDir, optimatePython, optimateLlmProvider }) {
   const tempFiles = [];
+  console.log(`[OptiMATE] Starting job ${jobId} | python=${optimatePython} | dir=${optimateDir} | provider=${optimateLlmProvider}`);
 
   try {
     // Write the prompt to a temp .txt file
@@ -238,11 +239,13 @@ async function runOptimateJob({ jobId, prompt, files, optimateDir, optimatePytho
     }
 
     const reportPath = match[1];
+    console.log(`[OptiMATE] Job ${jobId} done — report: ${reportPath}`);
     const report = await readFile(reportPath, "utf8");
     await setJob(jobId, { status: "done", output: report });
 
   } catch (err) {
     const message = err instanceof Error ? err.message : "OptiMATE pipeline failed";
+    console.error(`[OptiMATE] Job ${jobId} FAILED:`, message);
     await setJob(jobId, { status: "error", error: message });
   } finally {
     // Clean up temp files
