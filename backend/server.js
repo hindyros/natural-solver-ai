@@ -2,6 +2,10 @@ import express from "express";
 import cors from "cors";
 import multer from "multer";
 import { Redis } from "@upstash/redis";
+import { spawn } from "child_process";
+import { writeFile, readFile, unlink } from "fs/promises";
+import { join } from "path";
+import { tmpdir } from "os";
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -16,11 +20,17 @@ app.use("/api", (_req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// Backend provider — set BACKEND_PROVIDER=optimate to use OptiMATE v1-light
+// ---------------------------------------------------------------------------
+const BACKEND_PROVIDER = (process.env.BACKEND_PROVIDER ?? "stackai").toLowerCase();
+console.log(`Backend provider: ${BACKEND_PROVIDER}`);
+
+// ---------------------------------------------------------------------------
 // Job store — Redis (persistent across restarts, survives Render cold starts)
 // Falls back to in-memory Map if Redis env vars are not set (local dev).
 // ---------------------------------------------------------------------------
-const JOB_TTL_SECONDS = 3600; // jobs expire after 1 hour
-const STUCK_JOB_TIMEOUT_MS = 960_000; // mark as error if running > 16 min
+const JOB_TTL_SECONDS = 3600;
+const STUCK_JOB_TIMEOUT_MS = 960_000; // 16 min
 
 let redis = null;
 if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
@@ -30,10 +40,10 @@ if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) 
   });
   console.log("Using Redis for job storage.");
 } else {
-  console.warn("Redis env vars not set — falling back to in-memory job store (not suitable for production).");
+  console.warn("Redis env vars not set — falling back to in-memory job store.");
 }
 
-const memoryJobs = new Map(); // fallback only
+const memoryJobs = new Map();
 
 async function getJob(jobId) {
   if (redis) return redis.get(`job:${jobId}`);
@@ -45,28 +55,15 @@ async function setJob(jobId, data) {
   memoryJobs.set(jobId, data);
 }
 
-async function deleteJob(jobId) {
-  if (redis) return redis.del(`job:${jobId}`);
-  memoryJobs.delete(jobId);
-}
-
+// ---------------------------------------------------------------------------
+// Routes
 // ---------------------------------------------------------------------------
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, provider: BACKEND_PROVIDER });
 });
 
 app.post("/api/stack-run", upload.array("files"), async (req, res) => {
-  const publicKey = process.env.STACK_AI_PUBLIC_KEY;
-  const orgId = process.env.STACK_AI_ORG_ID;
-  const flowId = process.env.STACK_AI_FLOW_ID;
-
-  if (!publicKey || !orgId || !flowId) {
-    return res
-      .status(500)
-      .json({ error: "Server misconfigured: missing Stack AI credentials" });
-  }
-
   const prompt = req.body?.prompt ?? req.query?.prompt;
   if (!prompt?.trim()) {
     return res.status(400).json({ error: "Prompt is required" });
@@ -77,12 +74,37 @@ app.post("/api/stack-run", upload.array("files"), async (req, res) => {
     originalname: f.originalname,
   }));
 
-  const jobId = crypto.randomUUID();
-  await setJob(jobId, { status: "running", startedAt: Date.now() });
+  if (BACKEND_PROVIDER === "stackai") {
+    const publicKey = process.env.STACK_AI_PUBLIC_KEY;
+    const orgId     = process.env.STACK_AI_ORG_ID;
+    const flowId    = process.env.STACK_AI_FLOW_ID;
 
-  res.json({ jobId });
+    if (!publicKey || !orgId || !flowId) {
+      return res.status(500).json({ error: "Server misconfigured: missing Stack AI credentials" });
+    }
 
-  runJob({ jobId, prompt, files, publicKey, orgId, flowId });
+    const jobId = crypto.randomUUID();
+    await setJob(jobId, { status: "running", startedAt: Date.now() });
+    res.json({ jobId });
+    runStackAIJob({ jobId, prompt, files, publicKey, orgId, flowId });
+
+  } else if (BACKEND_PROVIDER === "optimate") {
+    const optimateDir = process.env.OPTIMATE_DIR;
+    const optimatePython = process.env.OPTIMATE_PYTHON ?? "python3";
+    const optimateLlmProvider = process.env.OPTIMATE_LLM_PROVIDER ?? "openai";
+
+    if (!optimateDir) {
+      return res.status(500).json({ error: "Server misconfigured: OPTIMATE_DIR is not set" });
+    }
+
+    const jobId = crypto.randomUUID();
+    await setJob(jobId, { status: "running", startedAt: Date.now() });
+    res.json({ jobId });
+    runOptimateJob({ jobId, prompt, files, optimateDir, optimatePython, optimateLlmProvider });
+
+  } else {
+    return res.status(500).json({ error: `Unknown BACKEND_PROVIDER: "${BACKEND_PROVIDER}"` });
+  }
 });
 
 app.get("/api/status/:jobId", async (req, res) => {
@@ -92,7 +114,6 @@ app.get("/api/status/:jobId", async (req, res) => {
     return res.status(404).json({ error: "Job not found" });
   }
 
-  // Detect stuck jobs: if still "running" after STUCK_JOB_TIMEOUT_MS, mark as error
   if (job.status === "running" && Date.now() - job.startedAt > STUCK_JOB_TIMEOUT_MS) {
     const updated = { ...job, status: "error", error: "Job timed out — please try again." };
     await setJob(req.params.jobId, updated);
@@ -103,10 +124,10 @@ app.get("/api/status/:jobId", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Timeouts
+// StackAI backend
 // ---------------------------------------------------------------------------
-const UPLOAD_TIMEOUT_MS = 60_000;   // 60s per file upload
-const RUN_TIMEOUT_MS   = 900_000;   // 15 min for the StackAI flow
+const UPLOAD_TIMEOUT_MS = 60_000;
+const RUN_TIMEOUT_MS    = 900_000;
 
 async function fetchWithTimeout(url, options, timeoutMs) {
   const controller = new AbortController();
@@ -118,9 +139,7 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
-// ---------------------------------------------------------------------------
-
-async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
+async function runStackAIJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
   const userId = crypto.randomUUID();
   const consultantPrompt = buildConsultantPrompt(prompt);
 
@@ -129,9 +148,7 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
       const form = new FormData();
       form.append("file", new Blob([file.buffer]), file.originalname);
 
-      const uploadUrl = new URL(
-        "https://api.stack-ai.com/upload_to_supabase_user",
-      );
+      const uploadUrl = new URL("https://api.stack-ai.com/upload_to_supabase_user");
       uploadUrl.searchParams.set("org", orgId);
       uploadUrl.searchParams.set("user_id", userId);
       uploadUrl.searchParams.set("flow_id", flowId);
@@ -145,10 +162,7 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
 
       if (!uploadRes.ok) {
         const detail = await uploadRes.text();
-        await setJob(jobId, {
-          status: "error",
-          error: `File upload failed for "${file.originalname}": ${detail}`,
-        });
+        await setJob(jobId, { status: "error", error: `File upload failed for "${file.originalname}": ${detail}` });
         return;
       }
     }
@@ -157,15 +171,8 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
       `https://api.stack-ai.com/inference/v0/run/${orgId}/${flowId}`,
       {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${publicKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          "in-0": consultantPrompt,
-          "doc-0": [],
-          user_id: userId,
-        }),
+        headers: { Authorization: `Bearer ${publicKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ "in-0": consultantPrompt, "doc-0": [], user_id: userId }),
       },
       RUN_TIMEOUT_MS,
     );
@@ -177,10 +184,9 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
     }
 
     const result = await runRes.json();
-    const output =
-      result?.outputs?.["out-0"] ?? JSON.stringify(result, null, 2);
-
+    const output = result?.outputs?.["out-0"] ?? JSON.stringify(result, null, 2);
     await setJob(jobId, { status: "done", output });
+
   } catch (err) {
     const message = err?.name === "AbortError"
       ? "Request timed out — StackAI took too long to respond. Please try again."
@@ -188,6 +194,95 @@ async function runJob({ jobId, prompt, files, publicKey, orgId, flowId }) {
     await setJob(jobId, { status: "error", error: message });
   }
 }
+
+// ---------------------------------------------------------------------------
+// OptiMATE v1-light backend
+// ---------------------------------------------------------------------------
+async function runOptimateJob({ jobId, prompt, files, optimateDir, optimatePython, optimateLlmProvider }) {
+  const tempFiles = [];
+
+  try {
+    // Write the prompt to a temp .txt file
+    const promptFile = join(tmpdir(), `optimate_${jobId}.txt`);
+    await writeFile(promptFile, prompt, "utf8");
+    tempFiles.push(promptFile);
+
+    // Write any uploaded files to temp (CSV/JSON supported by OptiMATE)
+    const dataArgs = [];
+    for (const file of files) {
+      const tmpPath = join(tmpdir(), `optimate_${jobId}_${file.originalname}`);
+      await writeFile(tmpPath, file.buffer);
+      tempFiles.push(tmpPath);
+      dataArgs.push("--data", tmpPath);
+    }
+
+    // Build CLI args: python cli.py run --input <prompt> [--data <f>...] --provider openai
+    const args = [
+      join(optimateDir, "cli.py"),
+      "run",
+      "--input", promptFile,
+      ...dataArgs,
+      "--provider", optimateLlmProvider,
+    ];
+
+    const output = await spawnAsync(optimatePython, args, {
+      cwd: optimateDir,
+      env: { ...process.env },
+      timeoutMs: RUN_TIMEOUT_MS,
+    });
+
+    // Parse the report path from CLI stdout: "Done! Report: /path/to/report.md"
+    const match = output.stdout.match(/Done!\s+Report:\s+(\S+)/);
+    if (!match) {
+      throw new Error(`OptiMATE did not produce a report.\n\nCLI output:\n${output.stdout}\n${output.stderr}`);
+    }
+
+    const reportPath = match[1];
+    const report = await readFile(reportPath, "utf8");
+    await setJob(jobId, { status: "done", output: report });
+
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "OptiMATE pipeline failed";
+    await setJob(jobId, { status: "error", error: message });
+  } finally {
+    // Clean up temp files
+    for (const f of tempFiles) {
+      unlink(f).catch(() => {});
+    }
+  }
+}
+
+function spawnAsync(cmd, args, { cwd, env, timeoutMs }) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(cmd, args, { cwd, env });
+    let stdout = "";
+    let stderr = "";
+
+    proc.stdout.on("data", (d) => { stdout += d.toString(); });
+    proc.stderr.on("data", (d) => { stderr += d.toString(); });
+
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error(`OptiMATE timed out after ${timeoutMs / 1000}s`));
+    }, timeoutMs);
+
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        reject(new Error(`OptiMATE exited with code ${code}.\n\nstdout:\n${stdout}\n\nstderr:\n${stderr}`));
+      }
+    });
+
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

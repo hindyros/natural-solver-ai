@@ -1,0 +1,13 @@
+Our company runs a logistics operation with 8 delivery drivers and 12 daily routes.
+Each driver can only cover one route per day due to shift constraints.
+We have historical data on how long each driver takes to complete each route,
+and we want to minimize total delivery time across all assigned routes.
+
+Some routes require specialized vehicle types (refrigerated trucks), and only
+3 of our drivers are certified to operate those vehicles. Exactly 4 of the 12
+routes require refrigerated transport.
+
+We also have budget constraints: driver overtime (routes taking more than 8 hours)
+costs 1.5x the standard rate. We want to avoid overtime if possible.
+
+Can you identify the optimal assignment of drivers to routes for tomorrow's operations?
