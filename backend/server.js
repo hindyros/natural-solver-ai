@@ -227,10 +227,11 @@ async function runOptimateJob({ jobId, prompt, files, optimateDir, optimatePytho
       "--provider", optimateLlmProvider,
     ];
 
+    // py_packages lives one level above optimate/ (both under project src root)
+    const pyPackagesPath = join(optimateDir, "..", "py_packages");
     const subEnv = { ...process.env };
-    if (optimatePythonPath) {
-      subEnv.PYTHONPATH = optimatePythonPath + (process.env.PYTHONPATH ? `:${process.env.PYTHONPATH}` : "");
-    }
+    subEnv.PYTHONPATH = [pyPackagesPath, optimatePythonPath, process.env.PYTHONPATH]
+      .filter(Boolean).join(":");
 
     const output = await spawnAsync(optimatePython, args, {
       cwd: optimateDir,
