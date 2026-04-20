@@ -92,6 +92,7 @@ app.post("/api/stack-run", upload.array("files"), async (req, res) => {
     const optimateDir = process.env.OPTIMATE_DIR;
     const optimatePython = process.env.OPTIMATE_PYTHON ?? "python3";
     const optimateLlmProvider = process.env.OPTIMATE_LLM_PROVIDER ?? "openai";
+    const optimatePythonPath = process.env.OPTIMATE_PYTHONPATH ?? "";
 
     if (!optimateDir) {
       return res.status(500).json({ error: "Server misconfigured: OPTIMATE_DIR is not set" });
@@ -100,7 +101,7 @@ app.post("/api/stack-run", upload.array("files"), async (req, res) => {
     const jobId = crypto.randomUUID();
     await setJob(jobId, { status: "running", startedAt: Date.now() });
     res.json({ jobId });
-    runOptimateJob({ jobId, prompt, files, optimateDir, optimatePython, optimateLlmProvider });
+    runOptimateJob({ jobId, prompt, files, optimateDir, optimatePython, optimateLlmProvider, optimatePythonPath });
 
   } else {
     return res.status(500).json({ error: `Unknown BACKEND_PROVIDER: "${BACKEND_PROVIDER}"` });
@@ -198,7 +199,7 @@ async function runStackAIJob({ jobId, prompt, files, publicKey, orgId, flowId })
 // ---------------------------------------------------------------------------
 // OptiMATE v1-light backend
 // ---------------------------------------------------------------------------
-async function runOptimateJob({ jobId, prompt, files, optimateDir, optimatePython, optimateLlmProvider }) {
+async function runOptimateJob({ jobId, prompt, files, optimateDir, optimatePython, optimateLlmProvider, optimatePythonPath }) {
   const tempFiles = [];
   console.log(`[OptiMATE] Starting job ${jobId} | python=${optimatePython} | dir=${optimateDir} | provider=${optimateLlmProvider}`);
 
@@ -226,9 +227,14 @@ async function runOptimateJob({ jobId, prompt, files, optimateDir, optimatePytho
       "--provider", optimateLlmProvider,
     ];
 
+    const subEnv = { ...process.env };
+    if (optimatePythonPath) {
+      subEnv.PYTHONPATH = optimatePythonPath + (process.env.PYTHONPATH ? `:${process.env.PYTHONPATH}` : "");
+    }
+
     const output = await spawnAsync(optimatePython, args, {
       cwd: optimateDir,
-      env: { ...process.env },
+      env: subEnv,
       timeoutMs: RUN_TIMEOUT_MS,
     });
 
