@@ -5,8 +5,8 @@ services:
     rootDir: backend
     region: oregon
     plan: free
-    buildCommand: npm install && pip3 install --target=./py_packages -r ../optimate/requirements-deploy.txt
-    startCommand: node server.js
+    buildCommand: npm install
+    startCommand: bash start.sh
     healthCheckPath: /health
     envVars:
       - key: OPTIMATE_PYTHON
