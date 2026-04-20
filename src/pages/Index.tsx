@@ -7,11 +7,15 @@ import MathAnimation from "@/components/MathAnimation";
 import { lazy, Suspense } from "react";
 const MermaidChart = lazy(() => import("@/components/MermaidChart"));
 
+type Provider = { id: string; label: string; available: boolean };
+
 const Index = () => {
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [report, setReport] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -20,6 +24,18 @@ const Index = () => {
       reportRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [report]);
+
+  useEffect(() => {
+    const apiUrl = import.meta.env.VITE_API_URL || "";
+    fetch(`${apiUrl}/api/providers`)
+      .then((r) => r.json())
+      .then((list: Provider[]) => {
+        const available = list.filter((p) => p.available);
+        setProviders(available);
+        if (available.length > 0) setSelectedProvider(available[0].id);
+      })
+      .catch(() => {});
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -41,6 +57,7 @@ const Index = () => {
     try {
       const body = new FormData();
       body.append("prompt", description);
+      if (selectedProvider) body.append("provider", selectedProvider);
       for (const file of files) {
         body.append("files", file);
       }
@@ -183,6 +200,30 @@ const Index = () => {
             />
           </div>
         </div>
+
+        {/* Provider selector — only shown when multiple backends are available */}
+        {providers.length > 1 && (
+          <div className="mb-6 flex items-center gap-3">
+            <span className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+              Engine
+            </span>
+            <div className="flex rounded border border-border overflow-hidden">
+              {providers.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedProvider(p.id)}
+                  className={`px-4 py-1.5 text-xs transition-colors ${
+                    selectedProvider === p.id
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Submit */}
         <button

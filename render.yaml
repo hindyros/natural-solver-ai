@@ -1,23 +1,26 @@
 services:
   - type: web
     name: natural-solver-backend
-    runtime: node
-    rootDir: backend
+    runtime: docker
     region: oregon
     plan: free
-    buildCommand: npm install
-    startCommand: bash start.sh
     healthCheckPath: /health
     envVars:
-      - key: OPTIMATE_PYTHON
-        value: python3
-      - key: OPTIMATE_DIR
-        value: /opt/render/project/src/optimate
-      - key: OPTIMATE_PYTHONPATH
-        value: /opt/render/project/src/optimate_deps
+      - key: BACKEND_PROVIDER
+        sync: false
+      - key: OPTIMATE_LLM_PROVIDER
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: STACK_AI_PUBLIC_KEY
         sync: false
       - key: STACK_AI_ORG_ID
         sync: false
       - key: STACK_AI_FLOW_ID
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
         sync: false
