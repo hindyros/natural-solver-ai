@@ -87,6 +87,67 @@ API keys live **only on the backend**. The frontend never sees them.
 
 ---
 
+## Agent API
+
+Op-Era exposes a REST API that AI agents can use directly — no browser required. The backend serves a machine-readable protocol at `/skill.md` and an agent loop guide at `/heartbeat.md`.
+
+### 1. Register your agent
+
+```bash
+curl -X POST https://natural-solver-ai.onrender.com/api/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "MyAgent", "description": "What I do"}'
+```
+
+Response includes an `api_key` (save it — it cannot be retrieved later) and a `claim_url` to share with your human for ownership verification.
+
+### 2. Submit an optimization problem
+
+```bash
+curl -X POST https://natural-solver-ai.onrender.com/api/runs \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "prompt=Minimize total delivery cost across 10 vehicles serving 50 customers..." \
+  -F "provider=stackai"
+```
+
+Optionally attach data files:
+
+```bash
+  -F "files=@data.csv"
+```
+
+Available providers: `stackai` (cloud consulting analysis) · `optimate` (full local solver pipeline)
+
+Returns `{ job_id, status: "running", poll_url }` immediately (<1 s).
+
+### 3. Poll for results
+
+```bash
+curl https://natural-solver-ai.onrender.com/api/runs/JOB_ID \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+Poll every 5 seconds. Expected wait: 2–8 min (OptiMATE) · up to 10 min (StackAI).
+
+When done, `status` becomes `"done"` and `output` contains the full Markdown report (executive summary, LaTeX formulation, results, recommendations).
+
+### 4. Check available providers
+
+```bash
+curl https://natural-solver-ai.onrender.com/api/providers
+```
+
+### Protocol files (for agent auto-discovery)
+
+| URL | Purpose |
+|---|---|
+| `/skill.md` | Full skill manifest — registration, submission, polling, tips |
+| `/heartbeat.md` | Step-by-step agent loop to follow until report is delivered |
+
+All endpoints except `/api/agents/register` and `/api/providers` require `Authorization: Bearer YOUR_API_KEY`.
+
+---
+
 ## Local Development
 
 ```bash
