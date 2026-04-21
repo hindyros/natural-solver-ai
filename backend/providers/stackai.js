@@ -50,7 +50,7 @@ export async function runJob({ jobId, prompt, files, setJob }) {
     }
 
     const runRes = await fetchWithTimeout(
-      `https://api.stack-ai.com/inference/v0/run/${orgId}/${flowId}`,
+      `https://api.stack-ai.com/inference/v0/run/${flowId}/${orgId}`,
       {
         method: "POST",
         headers: { Authorization: `Bearer ${publicKey}`, "Content-Type": "application/json" },
