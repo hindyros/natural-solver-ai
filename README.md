@@ -1,47 +1,96 @@
 # Op-Σra — AI Optimization Consulting
 
-Natural-language optimization problem → consultant-grade report, powered by a multi-agent StackAI pipeline.
+Turn any natural-language optimization problem into a consultant-grade report with mathematical formulation, solver results, and business recommendations.
+
+---
+
+## What it does
+
+1. User describes a problem in plain English (e.g. *"Schedule 20 nurses across 3 shifts to minimize overtime while meeting patient ratios"*)
+2. Optionally uploads a data file (CSV, Excel)
+3. The AI pipeline formulates it mathematically, solves it, and writes a structured report
+4. The report includes an executive summary, LaTeX formulation, solution results, Mermaid diagrams, and ranked recommendations
 
 ---
 
 ## Tech Stack
 
-| Layer | Service | Purpose |
+| Layer | Technology | Purpose |
 |---|---|---|
-| **Frontend** | [Vercel](https://vercel.com) | Hosts the React/Vite app |
-| **Frontend framework** | React 18 + TypeScript + Vite | UI |
-| **Styling** | Tailwind CSS + shadcn/ui | Component library & design system |
-| **Markdown rendering** | react-markdown + remark-gfm | Renders the consultant report |
-| **Diagrams** | Mermaid.js | Renders optimization diagrams (pie, flowchart) |
-| **Backend** | [Render](https://render.com) (free tier) | Express/Node.js API server |
-| **Job store** | [Upstash Redis](https://upstash.com) | Persists async job state across server restarts |
-| **AI pipeline** | [StackAI](https://stack-ai.com) | Multi-agent flow: formulator → auditor → code gen → validator |
+| **Frontend** | React 18 + TypeScript + Vite on [Vercel](https://vercel.com) | UI |
+| **Styling** | Tailwind CSS + shadcn/ui | Component library |
+| **Report rendering** | react-markdown + remark-gfm + KaTeX | Markdown, tables, LaTeX math |
+| **Diagrams** | Mermaid.js | Pie charts, flowcharts inside reports |
+| **Backend** | Express/Node.js on [Render](https://render.com) | API server, job orchestration |
+| **Job store** | [Upstash Redis](https://upstash.com) | Persists async job state across restarts |
+| **Provider: OptiMATE** | Local multi-agent Python pipeline | Default — formulate → solve → report |
+| **Provider: StackAI** | [StackAI](https://stack-ai.com) cloud flow | Alternative — cloud AI consulting analysis |
 
 ---
 
 ## Architecture
 
+### Web app flow
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant E as Express (Render)
+    participant R as Redis (Upstash)
+    participant P as AI Provider
+
+    B->>E: POST /api/runs (prompt + files)
+    E->>R: store job {status: running}
+    E-->>B: 202 { job_id } (<1s)
+    E->>P: run pipeline (background)
+    P-->>E: report markdown
+    E->>R: store job {status: done, output}
+
+    loop every 5s
+        B->>E: GET /api/runs/:job_id
+        E->>R: get job
+        E-->>B: {status, output?}
+    end
 ```
-Browser
-  │
-  ├─ POST /api/stack-run  ──▸  Express (Render)  ──▸  StackAI pipeline
-  │       returns { jobId }         │                    (Opus 4.6 + Sonnet 4.6)
-  │                                 │
-  │                           Upstash Redis
-  │                           job:{ status, output }
-  │
-  └─ GET /api/status/:jobId  ──▸  Express  ──▸  Redis GET
-         polls every 3s              returns { status: "running" | "done" | "error" }
+
+### Provider selection
+
+```mermaid
+flowchart LR
+    req([POST /api/runs]) --> check{provider param?}
+    check -->|optimate / default| OPT[OptiMATE\nlocal Python pipeline\n2–8 min]
+    check -->|stackai| SAI[StackAI\ncloud flow\nup to 10 min]
+    OPT --> redis[(Redis)]
+    SAI --> redis
+    redis --> poll([GET /api/runs/:id])
+```
+
+### Agent API flow
+
+```mermaid
+sequenceDiagram
+    participant A as AI Agent
+    participant E as Express (Render)
+    participant R as Redis
+
+    A->>E: POST /api/agents/register
+    E-->>A: { api_key, claim_url }
+    A->>E: POST /api/runs (Bearer api_key)
+    E->>R: store job
+    E-->>A: { job_id }
+    loop poll every 5s
+        A->>E: GET /api/runs/:job_id
+        E-->>A: { status }
+    end
+    E-->>A: { status: done, output: "# Report..." }
 ```
 
 **Key design decisions:**
-- The initial POST returns a `jobId` immediately (<1s) — no long-lived HTTP connection
-- The StackAI call runs as a background job; the frontend polls for completion
-- Redis persists job state so results survive Render restarts and browser tab throttling
-- Jobs expire automatically after 1 hour (Redis TTL)
-- Fetch timeouts: 60s per file upload, 270s for the AI flow run
-
-API keys live **only on the backend**. The frontend never sees them.
+- The POST returns a `job_id` in <1 s — no long-lived HTTP connections
+- AI pipeline runs in the background; client polls for completion
+- Redis persists job state so results survive Render cold starts and tab throttling
+- Jobs expire after 1 hour (Redis TTL)
+- API keys live **only on the backend** — the frontend never sees them
 
 ---
 
@@ -49,13 +98,19 @@ API keys live **only on the backend**. The frontend never sees them.
 
 ### Backend (Render)
 
-| Variable | Description |
-|---|---|
-| `STACK_AI_PUBLIC_KEY` | StackAI API key |
-| `STACK_AI_ORG_ID` | StackAI organisation ID |
-| `STACK_AI_FLOW_ID` | StackAI flow ID |
-| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST endpoint |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token |
+| Variable | Required | Description |
+|---|---|---|
+| `BACKEND_PROVIDER` | No | Default provider: `optimate` or `stackai` (defaults to `optimate`) |
+| `APP_URL` | Yes | Public backend URL, e.g. `https://natural-solver-ai.onrender.com` |
+| `FRONTEND_URL` | Yes | Public frontend URL (used in claim links) |
+| `UPSTASH_REDIS_REST_URL` | Yes | Upstash Redis REST endpoint |
+| `UPSTASH_REDIS_REST_TOKEN` | Yes | Upstash Redis auth token |
+| `STACK_AI_PUBLIC_KEY` | If using StackAI | StackAI API key |
+| `STACK_AI_ORG_ID` | If using StackAI | StackAI organisation ID |
+| `STACK_AI_FLOW_ID` | If using StackAI | StackAI flow ID |
+| `OPTIMATE_LLM_PROVIDER` | If using OptiMATE | LLM backend: `openai`, `anthropic`, or `groq` |
+| `OPENAI_API_KEY` | If `OPTIMATE_LLM_PROVIDER=openai` | OpenAI key |
+| `ANTHROPIC_API_KEY` | If `OPTIMATE_LLM_PROVIDER=anthropic` | Anthropic key |
 
 ### Frontend (Vercel)
 
@@ -67,91 +122,71 @@ API keys live **only on the backend**. The frontend never sees them.
 
 ## Deploy
 
-### Backend (Render)
+### 1. Redis (Upstash)
+
+1. [upstash.com](https://upstash.com) → create a free Redis database
+2. Copy `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` — you'll need them in step 2
+
+### 2. Backend (Render)
 
 1. [render.com/new](https://render.com/new) → **Blueprint** → connect this repo
 2. Render reads `render.yaml` and creates the service
-3. Add the five env vars above under Environment
+3. Add env vars (see table above) under **Environment**
 4. Deploy — note the service URL
 
-### Redis (Upstash)
-
-1. [upstash.com](https://upstash.com) → create a free Redis database
-2. Copy `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` into Render env vars
-
-### Frontend (Vercel)
+### 3. Frontend (Vercel)
 
 1. [vercel.com/new](https://vercel.com/new) → import this repo
-2. Add env var: `VITE_API_URL` = your Render backend URL (no trailing slash)
+2. Set `VITE_API_URL` to your Render backend URL (no trailing slash)
 3. Deploy
 
 ---
 
 ## Agent API
 
-Op-Era exposes a REST API that AI agents can use directly — no browser required.
+Op-Era exposes a REST API so AI agents can submit and retrieve optimization reports programmatically — no browser required.
 
-**Protocol files** (start here):
+**Start here:**
 
-| URL | Purpose |
-|---|---|
-| [`https://natural-solver-ai.onrender.com/skill.md`](https://natural-solver-ai.onrender.com/skill.md) | Full skill manifest — registration, submission, polling, tips |
-| [`https://natural-solver-ai.onrender.com/heartbeat.md`](https://natural-solver-ai.onrender.com/heartbeat.md) | Step-by-step agent loop to follow until report is delivered |
+| File | URL | Purpose |
+|---|---|---|
+| `skill.md` | [`https://natural-solver-ai.onrender.com/skill.md`](https://natural-solver-ai.onrender.com/skill.md) | Full skill manifest with all endpoints and tips |
+| `heartbeat.md` | [`https://natural-solver-ai.onrender.com/heartbeat.md`](https://natural-solver-ai.onrender.com/heartbeat.md) | Step-by-step loop for agents to follow end-to-end |
 
-### 1. Register your agent
+### Quick reference
 
+**Register** (one-time, no auth needed):
 ```bash
 curl -X POST https://natural-solver-ai.onrender.com/api/agents/register \
   -H "Content-Type: application/json" \
   -d '{"name": "MyAgent", "description": "What I do"}'
+# → { api_key: "opera_...", claim_url: "..." }
+# Save api_key — it cannot be retrieved later
 ```
 
-Response includes an `api_key` (save it — it cannot be retrieved later) and a `claim_url` to share with your human for ownership verification.
-
-> The `api_key` is your agent identity token — it has nothing to do with StackAI credentials, which are handled server-side.
-
-### 2. Submit an optimization problem
-
-Default provider is **OptiMATE** (no extra setup). StackAI is an optional alternative.
-
+**Submit a problem** (default provider: OptiMATE):
 ```bash
 curl -X POST https://natural-solver-ai.onrender.com/api/runs \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "prompt=Minimize total delivery cost across 10 vehicles serving 50 customers..."
+  -F "prompt=Schedule 20 nurses across 3 shifts to minimize overtime..."
+# Optionally: -F "files=@data.csv" -F "provider=stackai"
+# → { job_id: "uuid-...", status: "running", poll_url: "..." }
 ```
 
-Optionally attach data files or select a provider:
-
-```bash
-  -F "files=@data.csv" \
-  -F "provider=stackai"
-```
-
-| Provider | Description | Default? |
-|---|---|---|
-| `optimate` | Full local multi-agent solver pipeline | Yes |
-| `stackai` | Cloud AI consulting analysis | No |
-
-Returns `{ job_id, status: "running", poll_url }` immediately (<1 s).
-
-### 3. Poll for results
-
+**Poll for results:**
 ```bash
 curl https://natural-solver-ai.onrender.com/api/runs/JOB_ID \
   -H "Authorization: Bearer YOUR_API_KEY"
+# → { status: "done", output: "# Executive Summary\n..." }
 ```
 
-Poll every 5 seconds. Expected wait: 2–8 min (OptiMATE) · up to 10 min (StackAI).
-
-When done, `status` becomes `"done"` and `output` contains the full Markdown report (executive summary, LaTeX formulation, results, recommendations).
-
-### 4. Check available providers
-
+**Check providers:**
 ```bash
 curl https://natural-solver-ai.onrender.com/api/providers
+# → [{ id: "optimate", available: true }, { id: "stackai", available: true }]
 ```
 
-All endpoints except `/api/agents/register` and `/api/providers` require `Authorization: Bearer YOUR_API_KEY`.
+> The `api_key` is an agent identity token, not a StackAI credential. StackAI credentials are configured server-side and never exposed to agents or the browser.
 
 ---
 
@@ -161,7 +196,7 @@ All endpoints except `/api/agents/register` and `/api/providers` require `Author
 # Backend (terminal 1)
 cd backend
 npm install
-cp .env.example .env   # fill in Stack AI keys + Upstash credentials
+cp .env.example .env        # fill in provider keys (OptiMATE or StackAI)
 node --env-file=.env server.js
 
 # Frontend (terminal 2)
@@ -170,4 +205,4 @@ npm install
 VITE_API_URL=http://localhost:3001 npm run dev
 ```
 
-The backend falls back to an in-memory job store if Redis env vars are absent, so local dev works without Upstash.
+Without Redis env vars, the backend falls back to an in-memory job store — local dev works without Upstash.
