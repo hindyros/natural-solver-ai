@@ -6,6 +6,10 @@ services:
     plan: free
     healthCheckPath: /health
     envVars:
+      - key: FRONTEND_URL
+        sync: false
+      - key: APP_URL
+        sync: false
       - key: BACKEND_PROVIDER
         sync: false
       - key: OPTIMATE_LLM_PROVIDER
