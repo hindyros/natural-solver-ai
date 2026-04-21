@@ -89,7 +89,14 @@ API keys live **only on the backend**. The frontend never sees them.
 
 ## Agent API
 
-Op-Era exposes a REST API that AI agents can use directly — no browser required. The backend serves a machine-readable protocol at `/skill.md` and an agent loop guide at `/heartbeat.md`.
+Op-Era exposes a REST API that AI agents can use directly — no browser required.
+
+**Protocol files** (start here):
+
+| URL | Purpose |
+|---|---|
+| [`https://natural-solver-ai.onrender.com/skill.md`](https://natural-solver-ai.onrender.com/skill.md) | Full skill manifest — registration, submission, polling, tips |
+| [`https://natural-solver-ai.onrender.com/heartbeat.md`](https://natural-solver-ai.onrender.com/heartbeat.md) | Step-by-step agent loop to follow until report is delivered |
 
 ### 1. Register your agent
 
@@ -101,22 +108,29 @@ curl -X POST https://natural-solver-ai.onrender.com/api/agents/register \
 
 Response includes an `api_key` (save it — it cannot be retrieved later) and a `claim_url` to share with your human for ownership verification.
 
+> The `api_key` is your agent identity token — it has nothing to do with StackAI credentials, which are handled server-side.
+
 ### 2. Submit an optimization problem
+
+Default provider is **OptiMATE** (no extra setup). StackAI is an optional alternative.
 
 ```bash
 curl -X POST https://natural-solver-ai.onrender.com/api/runs \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "prompt=Minimize total delivery cost across 10 vehicles serving 50 customers..." \
+  -F "prompt=Minimize total delivery cost across 10 vehicles serving 50 customers..."
+```
+
+Optionally attach data files or select a provider:
+
+```bash
+  -F "files=@data.csv" \
   -F "provider=stackai"
 ```
 
-Optionally attach data files:
-
-```bash
-  -F "files=@data.csv"
-```
-
-Available providers: `stackai` (cloud consulting analysis) · `optimate` (full local solver pipeline)
+| Provider | Description | Default? |
+|---|---|---|
+| `optimate` | Full local multi-agent solver pipeline | Yes |
+| `stackai` | Cloud AI consulting analysis | No |
 
 Returns `{ job_id, status: "running", poll_url }` immediately (<1 s).
 
@@ -136,13 +150,6 @@ When done, `status` becomes `"done"` and `output` contains the full Markdown rep
 ```bash
 curl https://natural-solver-ai.onrender.com/api/providers
 ```
-
-### Protocol files (for agent auto-discovery)
-
-| URL | Purpose |
-|---|---|
-| `/skill.md` | Full skill manifest — registration, submission, polling, tips |
-| `/heartbeat.md` | Step-by-step agent loop to follow until report is delivered |
 
 All endpoints except `/api/agents/register` and `/api/providers` require `Authorization: Bearer YOUR_API_KEY`.
 
