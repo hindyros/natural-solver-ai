@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { Upload, X, Send, FileText, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import MathAnimation from "@/components/MathAnimation";
@@ -255,7 +257,8 @@ const Index = () => {
           </div>
           <div className="mx-auto max-w-5xl px-8 py-10">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              remarkPlugins={[remarkGfm, remarkMath]}
+              rehypePlugins={[rehypeKatex]}
               components={{
                 // Headings
                 h1: ({ ...props }) => (

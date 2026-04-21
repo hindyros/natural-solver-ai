@@ -33,7 +33,13 @@ class ReportWriter(BaseAgent):
         "Never use jargon without explanation. "
         "Always lead with business value. "
         "Quantify impact wherever the data supports it. "
-        "Use consulting conventions: action-oriented language, visual-first tables."
+        "Use consulting conventions: action-oriented language, visual-first tables.\n\n"
+        "Math formatting rules (strictly required):\n"
+        "- Wrap ALL mathematical expressions in LaTeX delimiters.\n"
+        "- Inline math: $x_i$, $\\sum_i$, $\\leq$, etc.\n"
+        "- Block math (own line, centered): $$\\text{Maximize} \\sum_{i=1}^{n} p_i x_i$$\n"
+        "- Never write raw math without delimiters (e.g. never write 'sum_i p_i x_i', always '$$\\sum_i p_i x_i$$').\n"
+        "- Use standard LaTeX notation: \\sum, \\leq, \\geq, \\cdot, \\in, \\forall, \\text{}, etc."
     )
 
     async def run(
