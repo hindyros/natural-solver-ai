@@ -56,13 +56,32 @@ const Index = () => {
 
     const apiUrl = import.meta.env.VITE_API_URL || "";
 
+    // Sentinel to distinguish a real job failure from a transient network error
+    class JobError extends Error {}
+
+    // Sleeps for `ms`, but wakes immediately when a hidden tab becomes visible
+    // again — avoids browser timer throttling killing the polling loop.
+    const smartSleep = (ms: number): Promise<void> =>
+      new Promise((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timer);
+            document.removeEventListener("visibilitychange", onVisible);
+            resolve();
+          }
+        };
+        const onVisible = () => { if (!document.hidden) finish(); };
+        const timer = setTimeout(finish, ms);
+        document.addEventListener("visibilitychange", onVisible);
+      });
+
     try {
       const body = new FormData();
       body.append("prompt", description);
       if (selectedProvider) body.append("provider", selectedProvider);
-      for (const file of files) {
-        body.append("files", file);
-      }
+      for (const file of files) body.append("files", file);
 
       const submitRes = await fetch(`${apiUrl}/api/stack-run`, {
         method: "POST",
@@ -70,34 +89,54 @@ const Index = () => {
         cache: "no-store",
       });
       const submitData = await submitRes.json();
-
-      if (!submitRes.ok) {
-        throw new Error(submitData.error || "Request failed");
-      }
+      if (!submitRes.ok) throw new Error(submitData.error || "Request failed");
 
       const { jobId } = submitData;
 
+      const MAX_CONSECUTIVE_ERRORS = 5;
+      const POLL_INTERVAL_MS = 5000;
+      const FETCH_TIMEOUT_MS = 10000;
+      let consecutiveErrors = 0;
+
       while (true) {
-        await new Promise((r) => setTimeout(r, 3000));
+        // Respects tab visibility — wakes immediately when user returns
+        await smartSleep(POLL_INTERVAL_MS);
 
-        const pollRes = await fetch(`${apiUrl}/api/status/${jobId}`, {
-          cache: "no-store",
-        });
-        if (pollRes.status === 304) {
-          continue;
-        }
-        if (!pollRes.ok) {
-          throw new Error("Status polling failed");
-        }
-        const job = await pollRes.json();
+        const controller = new AbortController();
+        const abortTimer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
-        if (job.status === "done") {
-          setReport(job.output);
-          return;
-        }
+        try {
+          const pollRes = await fetch(`${apiUrl}/api/status/${jobId}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
 
-        if (job.status === "error") {
-          throw new Error(job.error || "Processing failed");
+          if (!pollRes.ok) throw new Error(`HTTP ${pollRes.status}`);
+
+          const job = await pollRes.json();
+          consecutiveErrors = 0;
+
+          if (job.status === "done") {
+            setReport(job.output);
+            return;
+          }
+          if (job.status === "error") {
+            throw new JobError(job.error || "Processing failed");
+          }
+          // status === "running" → continue loop
+        } catch (err) {
+          // Job explicitly failed — surface the error immediately
+          if (err instanceof JobError) throw err;
+          // Transient error (network blip, timeout, non-2xx) — retry
+          consecutiveErrors++;
+          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            throw new Error(
+              `Lost connection after ${MAX_CONSECUTIVE_ERRORS} failed attempts. ` +
+              `Your job may still be running — refresh the page to check.`
+            );
+          }
+        } finally {
+          clearTimeout(abortTimer);
         }
       }
     } catch (error) {
